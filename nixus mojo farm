@@ -1,0 +1,324 @@
+--idk if this works never tested just deobfuscated it and use ai to make it readable lol
+
+
+
+
+
+-- Nixus Ancient Tree Auto Farm
+-- Make sure you have a bed right by the Ancient Tree
+-- Make sure you have an axe
+-- Make sure script is in your Auto-Execute Folder
+-- Make sure you have an Auto Clicker pressing "Bed Spawn"
+
+getgenv().Nixus = {
+    ["Auto-Farm"] = true,
+    ["Auto-Rejoin"] = true,
+    ["PS-Server-Link-Code"] = nil, -- Replace with your Private Server Link
+    ["Auto-Pick-Up-Essence"] = true,
+    ["Anti-Afk"] = true,
+    ["Fast-Swing"] = true,
+    ["Axe-Slot"] = 3,
+}
+
+print("[Nixus] Ancient Tree Auto Farm Loaded!")
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+local VirtualUser = game:GetService("VirtualUser")
+
+local LocalPlayer = Players.LocalPlayer
+local Packets = nil
+
+-- Anti-AFK
+if getgenv().Nixus["Anti-Afk"] then
+    LocalPlayer.Idled:Connect(function()
+        VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+    end)
+end
+
+local rootPart = nil
+
+local function updateRootPart(char)
+    if char then
+        rootPart = char:WaitForChild("HumanoidRootPart", 5)
+    end
+end
+
+if LocalPlayer.Character then
+    updateRootPart(LocalPlayer.Character)
+end
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    updateRootPart(char)
+end)
+
+-- Load Packets
+task.spawn(function()
+    for i = 1, 15 do
+        local success, result = pcall(function()
+            local modules = ReplicatedStorage:WaitForChild("Modules")
+            return require(modules:WaitForChild("Packets"))
+        end)
+        if success and result then
+            Packets = result
+            print("[Nixus] Packets loaded!")
+            break
+        end
+        task.wait(1)
+    end
+end)
+
+local function getItemsFolder()
+    return workspace:FindFirstChild("Items") or workspace:FindFirstChild("DroppedItems") or workspace:FindFirstChild("WorldItems")
+end
+
+local function getPosition(obj)
+    if obj:IsA("Model") then
+        return obj.PrimaryPart and obj.PrimaryPart.Position or obj:GetPivot().Position
+    elseif obj:IsA("BasePart") then
+        return obj.Position
+    end
+    return nil
+end
+
+-- Pickup Essence
+local function pickupEssence()
+    if not Packets or not rootPart then return end
+    
+    local itemsFolder = getItemsFolder()
+    if not itemsFolder then return end
+    
+    for _, item in ipairs(itemsFolder:GetChildren()) do
+        local entityID = item:GetAttribute("EntityID")
+        if entityID and item.Name:lower():find("essence") then
+            local pos = getPosition(item)
+            if pos and (rootPart.Position - pos).Magnitude <= 35 then
+                pcall(function()
+                    Packets.Pickup.send(entityID)
+                end)
+                task.wait(0.03)
+            end
+        end
+    end
+end
+
+-- Check if essence nearby
+local function hasEssenceNearby()
+    if not rootPart then return false end
+    local itemsFolder = getItemsFolder()
+    if not itemsFolder then return false end
+    
+    for _, item in ipairs(itemsFolder:GetChildren()) do
+        if item.Name:lower():find("essence") then
+            local pos = getPosition(item)
+            if pos and (rootPart.Position - pos).Magnitude <= 35 then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Fast Swing
+local fastSwingEnabled = false
+
+local function enableFastSwing()
+    if not getgenv().Nixus["Fast-Swing"] then return end
+    fastSwingEnabled = true
+    local mt = getrawmetatable(game)
+    local oldIndex = mt.__index
+    setreadonly(mt, false)
+    mt.__index = newcclosure(function(self, key)
+        if fastSwingEnabled and key == "Cooldown" then
+            return 0
+        end
+        return oldIndex(self, key)
+    end)
+    setreadonly(mt, true)
+    print("[Nixus] Fast Swing ON")
+end
+
+local function disableFastSwing()
+    fastSwingEnabled = false
+    print("[Nixus] Fast Swing OFF")
+end
+
+-- Equip Axe
+local function equipAxe()
+    local targetSlot = getgenv().Nixus["Axe-Slot"]
+    print("[Nixus] Trying axe slot", targetSlot)
+    
+    -- ByteNetReliable axe equip (simplified)
+    pcall(function()
+        local reliable = ReplicatedStorage:WaitForChild("ByteNetReliable")
+        -- Slot equip logic (original used buffer, simplified here)
+        reliable:FireServer(buffer.fromstring("\x00\xd5\x0" .. tostring(targetSlot)))
+    end)
+    task.wait(0.6)
+    
+    -- Check if axe equipped
+    local character = LocalPlayer.Character
+    if character then
+        local tools = character:FindFirstChild("Tools")
+        if tools then
+            for _, tool in ipairs(tools:GetChildren()) do
+                if tool.Name:lower():find("axe") then
+                    print("[Nixus] Axe equipped from slot", targetSlot)
+                    return true
+                end
+            end
+        end
+    end
+    
+    -- Try all slots if failed
+    print("[Nixus] Config slot wrong, scanning all slots...")
+    for slot = 1, 6 do
+        if slot == targetSlot then continue end
+        pcall(function()
+            local reliable = ReplicatedStorage:WaitForChild("ByteNetReliable")
+            reliable:FireServer(buffer.fromstring("\x00\xd5\x0" .. tostring(slot)))
+        end)
+        task.wait(0.6)
+        -- Check again...
+        local character = LocalPlayer.Character
+        if character and character:FindFirstChild("Tools") then
+            for _, tool in ipairs(character.Tools:GetChildren()) do
+                if tool.Name:lower():find("axe") then
+                    print("[Nixus] Axe found in slot", slot)
+                    return true
+                end
+            end
+        end
+    end
+    print("[Nixus] ERROR: No axe found in any slot!")
+    return false
+end
+
+-- Hit Tree
+local function hitTree()
+    pcall(function()
+        local reliable = ReplicatedStorage:WaitForChild("ByteNetReliable")
+        reliable:FireServer(buffer.fromstring("\x00\x13\x01\x00\x0e\x02\x00\x00\x00[\x9d\x0c\xc4\xfc\x01\x9cC*\x88\x94\xc4\x00\x00\x83\xb7\x00\x00\xbe2\x85\xd0\xcf\x8b\xdaA"))
+    end)
+end
+
+-- Rejoin
+local function rejoinServer()
+    if not getgenv().Nixus["Auto-Rejoin"] then return end
+    local psCode = getgenv().Nixus["PS-Server-Link-Code"]
+    
+    if psCode and tostring(psCode) ~= "nil" then
+        print("[Nixus] Rejoining private server...")
+        pcall(function()
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, tostring(psCode), LocalPlayer)
+        end)
+    else
+        print("[Nixus] No PS link code, rejoining normally...")
+        pcall(function()
+            TeleportService:Teleport(game.PlaceId, LocalPlayer)
+        end)
+    end
+end
+
+-- Check if spawn GUI is open
+local function isSpawnGuiOpen()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local spawnGui = playerGui and playerGui:FindFirstChild("SpawnGui")
+    return spawnGui and spawnGui.Enabled
+end
+
+local function waitForSpawn()
+    if not isSpawnGuiOpen() then return end
+    print("[Nixus] Waiting for spawn...")
+    while isSpawnGuiOpen() do
+        task.wait(0.2)
+    end
+    print("[Nixus] Spawned! Waiting 3 seconds...")
+    task.wait(3)
+end
+
+-- Main Farm Loop
+local function farmLoop()
+    while true do
+        if not getgenv().Nixus["Auto-Farm"] then
+            task.wait(1)
+            continue
+        end
+        
+        waitForSpawn()
+        
+        print("[Nixus] Looking for Ancient Tree...")
+        local timeout = 0
+        
+        local resources = workspace:FindFirstChild("Resources")
+        local tree = resources and resources:FindFirstChild("Ancient Tree")
+        
+        while not tree do
+            task.wait(0.5)
+            timeout += 0.5
+            resources = workspace:FindFirstChild("Resources")
+            tree = resources and resources:FindFirstChild("Ancient Tree")
+            
+            if timeout >= 30 then
+                print("[Nixus] Tree not found after 30s, rejoining...")
+                rejoinServer()
+                return
+            end
+        end
+        
+        print("[Nixus] Ancient Tree found!")
+        
+        if not equipAxe() then
+            print("[Nixus] Could not equip axe, retrying in 3s...")
+            task.wait(3)
+            continue
+        end
+        
+        enableFastSwing()
+        print("[Nixus] Hitting Ancient Tree...")
+        
+        while tree and tree.Parent do
+            if not getgenv().Nixus["Auto-Farm"] then break end
+            hitTree()
+            task.wait(0.05)
+        end
+        
+        print("[Nixus] Tree gone! Collecting essence...")
+        disableFastSwing()
+        
+        if getgenv().Nixus["Auto-Pick-Up-Essence"] then
+            local startTime = tick()
+            while hasEssenceNearby() and (tick() - startTime) < 10 do
+                pickupEssence()
+                task.wait(0.05)
+            end
+            print("[Nixus] Essence done!")
+        end
+        
+        rejoinServer()
+    end
+end
+
+-- Auto pickup loop
+task.spawn(function()
+    while true do
+        task.wait(0.05)
+        if getgenv().Nixus["Auto-Pick-Up-Essence"] and Packets and rootPart then
+            pickupEssence()
+        end
+    end
+end)
+
+-- Main farm
+task.spawn(function()
+    while true do
+        local success, err = pcall(farmLoop)
+        if not success then
+            print("[Nixus] Error:", err)
+            task.wait(3)
+        end
+    end
+end)
