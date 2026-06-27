@@ -1,0 +1,622 @@
+--idk how old ts is 
+
+local u1 = require(game:GetService('ReplicatedStorage').Modules.Packets)
+local v4 = loadstring(game:HttpGet('https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua'))()
+local v5 = loadstring(game:HttpGet('https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua'))()
+local v6 = loadstring(game:HttpGet('https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua'))()
+
+local v7 = v4:CreateWindow({
+    Title = "TEXY'S GOLDFARM!!",
+    SubTitle = 'By Texchy',
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = 'Dark',
+    MinimizeKey = Enum.KeyCode.LeftControl,
+})
+
+local u8 = 80
+local G = 'Bloodfruit'
+
+local v9 = {
+    Main = v7:AddTab({ Title = 'Main', Icon = 'cloud' }),
+    Settings = v7:AddTab({ Title = 'Settings', Icon = 'settings' }),
+    AutoPlant = v7:AddTab({ Title = 'AutoPlant', Icon = 'sprout' }),
+}
+
+local _ = v4.Options
+v5:SetLibrary(v4)
+v6:SetLibrary(v4)
+v5:IgnoreThemeSettings()
+v5:SetIgnoreIndexes({})
+v6:SetFolder('NilHub')
+v5:SetFolder('NilHub')
+v6:BuildInterfaceSection(v9.Settings)
+v5:BuildConfigSection(v9.Settings)
+
+local function getClosestChest()
+    local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+    if not hrp then return nil end
+    if (hrp.Position - Vector3.new(938, -2, -1407)).Magnitude > 5 then return nil end
+    local closest, dist = nil, math.huge
+    for _, v in ipairs(workspace.Deployables:GetChildren()) do
+        if v:IsA('Model') and v.Name == 'Chest' then
+            local pp = v.PrimaryPart or v:FindFirstChildWhichIsA('BasePart')
+            if pp then
+                local d = (hrp.Position - pp.Position).Magnitude
+                if d < dist then
+                    closest = v
+                    dist = d
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function dropRawGold()
+    local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+    if not hrp or (hrp.Position - Vector3.new(938, -2, -1407)).Magnitude > 5 then return end
+    local list = game.Players.LocalPlayer.PlayerGui.MainGui.RightPanel.Inventory.List
+    local layoutOrder = nil
+    for _, v in ipairs(list:GetChildren()) do
+        if v:IsA('GuiObject') and v.Name == 'Raw Gold' then
+            layoutOrder = v.LayoutOrder
+            break
+        end
+    end
+    if layoutOrder then
+        u1.DropBagItem.send({layoutOrder})
+    end
+end
+
+v9.Main:AddButton({
+    Title = 'Anti Afk',
+    Description = 'ANTIAFK (IMPORTANT)',
+    Callback = function()
+        repeat wait() until game:IsLoaded()
+        local Players = game:GetService('Players')
+        local VirtualUser = game:GetService('VirtualUser')
+        Players.LocalPlayer.Idled:Connect(function()
+            VirtualUser:ClickButton2(Vector2.new())
+        end)
+    end,
+})
+
+v9.Main:AddButton({
+    Title = 'Place Chest',
+    Description = 'Places a chest at the location',
+    Callback = function()
+        local args = { Vector3.new(936.9560546875, -4.315433502197266, -1415.0616455078125), 'Chest', 0, true }
+        u1.PlaceStructure.send(args)
+    end,
+})
+
+v9.Main:AddButton({
+    Title = 'Place Coin Press',
+    Description = 'Places a coin press at the specified location',
+    Callback = function()
+        local args = { Vector3.new(928.6427612304688, -4.34231424331665, -1410.822998046875), 'Coin Press', 0, true }
+        u1.PlaceStructure.send(args)
+    end,
+})
+
+local function breakGoldNodes()
+    local char = game.Players.LocalPlayer.Character
+    local hrp = char and char:FindFirstChild('HumanoidRootPart')
+    if not hrp then return end
+    local resources = workspace.Resources:GetChildren()
+    local closest = nil
+    local minDist = math.huge
+    for _, res in ipairs(resources) do
+        local part = res:FindFirstChildWhichIsA('BasePart')
+        if part then
+            local dist = (part.Position - hrp.Position).Magnitude
+            if dist < minDist then
+                minDist = dist
+                closest = res
+            end
+        end
+    end
+    if closest then
+        local parts = {}
+        for _, p in ipairs(closest:GetChildren()) do
+            if p:IsA('BasePart') then
+                table.insert(parts, p)
+            end
+        end
+        if #parts > 0 then
+            u1.SwingTool.send({parts})
+        end
+    end
+end
+
+local function breakGoldNodesV2()
+    local char = game.Players.LocalPlayer.Character
+    local hrp = char and char:FindFirstChild('HumanoidRootPart')
+    if not hrp then return end
+    local goldNodes = {}
+    local function scan(model)
+        for _, child in ipairs(model:GetChildren()) do
+            if child.Name == 'Gold Node' then
+                local part = child:FindFirstChildWhichIsA('BasePart')
+                if part then
+                    table.insert(goldNodes, {
+                        goldNode = child,
+                        distance = (part.Position - hrp.Position).Magnitude
+                    })
+                end
+            end
+            scan(child)
+        end
+    end
+    scan(workspace)
+    table.sort(goldNodes, function(a, b) return a.distance < b.distance end)
+    if #goldNodes > 0 then
+        local node = goldNodes[1].goldNode
+        local parts = {}
+        for _, p in ipairs(node:GetChildren()) do
+            if p:IsA('BasePart') then
+                table.insert(parts, p)
+            end
+        end
+        if #parts > 0 then
+            u1.SwingTool.send({parts})
+        end
+    end
+end
+
+local autoHealEnabled = false
+local autoHealConn = nil
+
+local function autoHeal()
+    local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild('Humanoid')
+    if not hum then return end
+    if hum.Health < u8 then
+        local list = game.Players.LocalPlayer.PlayerGui.MainGui.RightPanel.Inventory.List
+        local layout = nil
+        for _, v in ipairs(list:GetChildren()) do
+            if v.Name == G then
+                layout = v.LayoutOrder
+                break
+            end
+        end
+        if layout then
+            for i = 1, 3 do
+                u1.UseBagItem.send({layout})
+            end
+        end
+    end
+end
+
+_Healing = v9.Main:AddSection('Healing!')
+_GoldFarm = v9.Main:AddSection('Gold Farm!')
+
+_Healing:AddToggle('AutoHeal', {
+    Title = 'AutoHeal',
+    Default = false,
+}):OnChanged(function(state)
+    autoHealEnabled = state
+    if state then
+        if autoHealConn then autoHealConn:Disconnect() end
+        autoHealConn = game:GetService('RunService').Heartbeat:Connect(function()
+            if autoHealEnabled then autoHeal() end
+        end)
+    else
+        if autoHealConn then
+            autoHealConn:Disconnect()
+            autoHealConn = nil
+        end
+    end
+end)
+
+local fruits = { 'Bloodfruit', 'Pumpkin', 'Strangefruit', 'Oddberry', 'Lemon', 'Apple', 'Coconut', 'Jelly', 'Sunfruit', 'Bluefruit', 'Berry', 'Orange', 'Cloudberry', 'Banana' }
+
+_Healing:AddDropdown('Select Fruit', {
+    Title = 'Select Fruit',
+    Values = fruits,
+    Multi = false,
+    Default = fruits[1],
+}):OnChanged(function(val)
+    G = val
+end)
+
+_Healing:AddSlider('Health to heal on', {
+    Title = 'Health to heal on',
+    Description = 'Set the health threshold to heal on',
+    Default = 80,
+    Min = 0,
+    Max = 101,
+    Rounding = 1,
+}):OnChanged(function(val)
+    u8 = val
+end)
+
+local autoBreakToggle = _GoldFarm:AddToggle('MyToggle', {
+    Title = 'Break Gold Nodes',
+    Default = false,
+})
+
+autoBreakToggle:OnChanged(function(state)
+    if state then
+        task.spawn(function()
+            while state do
+                breakGoldNodes()
+                breakGoldNodesV2()
+                task.wait(0.1)
+            end
+        end)
+    end
+end)
+
+_GoldFarm:AddToggle('Auto PickUp Raw Gold', {
+    Title = 'Auto PickUp Raw Gold',
+    Default = false,
+    Callback = function(state)
+        getgenv().autopickupRawGold = state
+        if state then
+            task.spawn(function()
+                while getgenv().autopickupRawGold do
+                    task.wait(0.5)
+                    pcall(function()
+                        local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+                        if not hrp then return end
+                        for _, v in ipairs(workspace:GetChildren()) do
+                            if v:FindFirstChild('Pickup') and (v:IsA('BasePart') or v:IsA('UnionOperation')) and v.Name == 'Raw Gold' and (hrp.Position - v.Position).Magnitude < 50 then
+                                u1.Pickup.send(v)
+                            end
+                        end
+                        for _, v in ipairs(workspace.Items:GetChildren()) do
+                            if v:FindFirstChild('Pickup') and (v:IsA('BasePart') or v:IsA('UnionOperation')) and v.Name == 'Raw Gold' and (hrp.Position - v.Position).Magnitude < 50 then
+                                u1.Pickup.send(v)
+                            end
+                        end
+                    end)
+                end
+            end)
+        end
+    end,
+})
+
+local campfireDelay = 1
+
+_GoldFarm:AddToggle('CampFire Aura', {
+    Title = 'CampFire Aura',
+    Default = false,
+    Callback = function(state)
+        if state then
+            task.spawn(function()
+                local campPos = Vector3.new(938, -2, -1407)
+                while state do
+                    local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+                    if hrp and (hrp.Position - campPos).Magnitude < 15 then
+                        local campfires = {}
+                        for _, v in ipairs(workspace.Deployables:GetChildren()) do
+                            if v.Name == 'Campfire' then
+                                local part = v:FindFirstChildWhichIsA('BasePart')
+                                if part then
+                                    table.insert(campfires, {
+                                        campfire = v,
+                                        distance = (hrp.Position - part.Position).Magnitude
+                                    })
+                                end
+                            end
+                        end
+                        table.sort(campfires, function(a,b) return a.distance < b.distance end)
+                        for _, cf in ipairs(campfires) do
+                            u1.InteractStructure.send({cf.campfire, 'Wood'})
+                            task.wait(campfireDelay)
+                        end
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end,
+})
+
+_GoldFarm:AddToggle('CampFire Aura v2 (works everywhere)', {
+    Title = 'CampFire Aura v2 (works everywhere)',
+    Default = false,
+    Callback = function(state)
+        if state then
+            task.spawn(function()
+                while state do
+                    local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+                    if hrp then
+                        local campfires = {}
+                        for _, v in ipairs(workspace.Deployables:GetChildren()) do
+                            if v.Name == 'Campfire' then
+                                local part = v:FindFirstChildWhichIsA('BasePart')
+                                if part then
+                                    table.insert(campfires, {
+                                        campfire = v,
+                                        distance = (hrp.Position - part.Position).Magnitude
+                                    })
+                                end
+                            end
+                        end
+                        table.sort(campfires, function(a,b) return a.distance < b.distance end)
+                        for _, cf in ipairs(campfires) do
+                            u1.InteractStructure.send({cf.campfire, 'Wood'})
+                            task.wait(campfireDelay)
+                        end
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end,
+})
+
+_GoldFarm:AddSlider('CampFireAura Delay', {
+    Title = 'CampFireAura Delay',
+    Description = 'Set the delay for CampFireAura',
+    Default = 1,
+    Min = 0,
+    Max = 35,
+    Rounding = 0.1,
+}):OnChanged(function(val)
+    campfireDelay = val
+end)
+
+local autoPickupChests = false
+
+_Pickups = v9.Main:AddSection('Pickups')
+
+_Pickups:AddToggle('Auto Pickup Items from Chests', {
+    Title = 'Auto Pickup Gold from Chests',
+    Default = false,
+    Callback = function(state)
+        autoPickupChests = state
+        if state then
+            task.spawn(function()
+                while autoPickupChests do
+                    task.wait()
+                    pcall(function()
+                        local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+                        if not hrp then return end
+                        for _, dep in ipairs(workspace.Deployables:GetChildren()) do
+                            if dep:FindFirstChild('Contents') then
+                                for _, item in ipairs(dep.Contents:GetChildren()) do
+                                    if item:FindFirstChild('Pickup') and (item:IsA('BasePart') or item:IsA('UnionOperation')) and item.Name == 'Gold' and (hrp.Position - item.Position).Magnitude < 50 then
+                                        u1.Pickup.send(item)
+                                    end
+                                end
+                            end
+                        end
+                    end)
+                end
+            end)
+        end
+    end,
+})
+
+_Pickups:AddToggle('Auto Pickup Coins', {
+    Title = 'Auto Pickup Coins',
+    Default = false,
+    Callback = function(state)
+        getgenv().autopickupItem = state
+        getgenv().itemToPickup = 'Coin2'
+        if state then
+            task.spawn(function()
+                while getgenv().autopickupItem do
+                    task.wait()
+                    pcall(function()
+                        local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+                        if not hrp then return end
+                        for _, v in ipairs(workspace:GetChildren()) do
+                            if v:FindFirstChild('Pickup') and (v:IsA('BasePart') or v:IsA('UnionOperation')) and v.Name == getgenv().itemToPickup and (hrp.Position - v.Position).Magnitude < 50 then
+                                u1.Pickup.send(v)
+                            end
+                        end
+                        for _, v in ipairs(workspace.Items:GetChildren()) do
+                            if v:FindFirstChild('Pickup') and (v:IsA('BasePart') or v:IsA('UnionOperation')) and v.Name == getgenv().itemToPickup and (hrp.Position - v.Position).Magnitude < 50 then
+                                u1.Pickup.send(v)
+                            end
+                        end
+                    end)
+                end
+            end)
+        end
+    end,
+})
+
+local selectedFruit = 'BloodFruit'
+local wasteAmount = 500
+local craftAmount = 100
+
+local _AutoStuff = v9.AutoPlant:AddSection('Auto Stuff')
+
+_AutoStuff:AddDropdown('Select Fruit', {
+    Title = 'Select Plant',
+    Values = fruits,
+    Default = fruits[1],
+    Callback = function(val)
+        selectedFruit = val
+    end,
+})
+
+_AutoStuff:AddToggle('Auto Waste Your Selected Fruit', {
+    Title = 'Auto Waste Your Selected Fruit',
+    Default = false,
+    Callback = function(state)
+        if state then
+            task.spawn(function()
+                while state do
+                    local qtyText = game.Players.LocalPlayer.PlayerGui.MainGui.RightPanel.Inventory.List:FindFirstChild(selectedFruit)
+                    if qtyText and qtyText:FindFirstChild('QuantityImage') and qtyText.QuantityImage:FindFirstChild('QuantityText') then
+                        local qty = tonumber(qtyText.QuantityImage.QuantityText.Text)
+                        if qty and wasteAmount < qty then
+                            local layout = nil
+                            for _, v in ipairs(game.Players.LocalPlayer.PlayerGui.MainGui.RightPanel.Inventory.List:GetChildren()) do
+                                if v.Name == selectedFruit then
+                                    layout = v.LayoutOrder
+                                    break
+                                end
+                            end
+                            if layout then
+                                u1.UseBagItem.send({layout})
+                            end
+                        end
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end,
+})
+
+_AutoStuff:AddSlider('How much to waste on?', {
+    Title = 'How much to waste on?',
+    Description = 'as the title states',
+    Default = 500,
+    Min = 0,
+    Max = 5000,
+    Rounding = 0.1,
+}):OnChanged(function(val)
+    wasteAmount = val
+end)
+
+_AutoStuff:AddToggle('Auto Craft Leaves Shirts', {
+    Title = 'Auto Craft Leaves Shirts',
+    Default = false,
+    Callback = function(state)
+        if state then
+            task.spawn(function()
+                while state do
+                    local leavesText = game.Players.LocalPlayer.PlayerGui.MainGui.RightPanel.Inventory.List.Leaves.QuantityImage.QuantityText
+                    local qty = tonumber(leavesText.Text)
+                    if qty and craftAmount < qty then
+                        while craftAmount < qty do
+                            u1.CraftItem.send({'Leaf Shirt'})
+                            task.wait(0.1)
+                            qty = tonumber(leavesText.Text)
+                        end
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end,
+})
+
+_AutoStuff:AddSlider('How much to waste on?', {
+    Title = 'How much to waste on?',
+    Description = 'as the title states',
+    Default = 100,
+    Min = 0,
+    Max = 5000,
+    Rounding = 0.1,
+}):OnChanged(function(val)
+    craftAmount = val
+end)
+
+_AutoStuff:AddToggle('Auto Plant', {
+    Title = 'Auto Plant',
+    Default = false,
+    Callback = function(state)
+        toggled = state
+        if state then
+            task.spawn(function()
+                while toggled do
+                    local char = game.Players.LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild('PrimaryPart') or char and char:FindFirstChild('HumanoidRootPart')
+                    if hrp then
+                        local pos = hrp.Position
+                        local closestPlantBox = nil
+                        local minDist = math.huge
+                        for _, box in ipairs(workspace.Deployables:GetChildren()) do
+                            if box.Name == 'Plant Box' and not box:FindFirstChild(selectedFruit) then
+                                local part = box:FindFirstChildWhichIsA('BasePart')
+                                if part then
+                                    local d = (part.Position - pos).Magnitude ^ 2
+                                    if d < minDist then
+                                        closestPlantBox = box
+                                        minDist = d
+                                    end
+                                end
+                            end
+                        end
+                        if closestPlantBox then
+                            u1.InteractStructure.send({closestPlantBox, selectedFruit})
+                        end
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end,
+})
+
+_AutoStuff:AddToggle('Auto Harvest', {
+    Title = 'Auto Harvest',
+    Default = false,
+    Callback = function(state)
+        getgenv().autoharvest = state
+        if state then
+            task.spawn(function()
+                while getgenv().autoharvest do
+                    task.wait()
+                    pcall(function()
+                        local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+                        if hrp then
+                            for _, item in ipairs(workspace:GetChildren()) do
+                                if item:FindFirstChild('Pickup') and item:IsA('Model') then
+                                    local part = item:FindFirstChildWhichIsA('BasePart')
+                                    if part and (hrp.Position - part.Position).Magnitude < 250 then
+                                        u1.Pickup.send(item)
+                                    end
+                                end
+                            end
+                        end
+                    end)
+                end
+            end)
+        end
+    end,
+})
+
+_GoldFarm:AddToggle('Auto Coin Press', {
+    Title = 'Auto Coin Press',
+    Default = false,
+    Callback = function(state)
+        toggled = state
+        if state then
+            task.spawn(function()
+                while toggled do
+                    local char = game.Players.LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild('PrimaryPart') or char and char:FindFirstChild('HumanoidRootPart')
+                    if hrp then
+                        local pos = hrp.Position
+                        local closestPress = nil
+                        local minDist = math.huge
+                        for _, press in ipairs(workspace.Deployables:GetChildren()) do
+                            if press.Name == 'Coin Press' then
+                                local part = press:FindFirstChildWhichIsA('BasePart')
+                                if part then
+                                    local d = (part.Position - pos).Magnitude ^ 2
+                                    if d < minDist then
+                                        closestPress = press
+                                        minDist = d
+                                    end
+                                end
+                            end
+                        end
+                        if closestPress then
+                            u1.InteractStructure.send({closestPress, 'Gold'})
+                        end
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end,
+})
+
+v4:Notify({
+    Title = 'Notification',
+    Content = 'Texy on top! Key bypassed.',
+    SubContent = 'Script loaded successfully',
+    Duration = 5,
+})
