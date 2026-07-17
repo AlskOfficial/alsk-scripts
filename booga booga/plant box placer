@@ -1,257 +1,225 @@
---works on xeno but it only placed 1 plant box so idrk 
-
+--works on xeno but its kinda broken (i fixed it as much as i could)
 
 local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 local Packets = require(ReplicatedStorage.Modules.Packets)
 
--- Config
-local Config = {
-    Enabled = false,
-    GridSize = getgenv().AUTO_PLANT_GRID_SIZE or 5.01,
-    PlaceRadius = 35,
-    VisualRadius = 50,
-    PlaceCooldown = 0.25,
-    RaycastHeight = 200,
-    Shape = "Circle", -- "Circle" or "Square"
-}
+local GRID_SIZE = 5.01
+local PLACE_RADIUS = 35
+local VISUAL_RADIUS = 50
+local PLACE_COOLDOWN = 0.08
+local RAYCAST_HEIGHT = 220
+local SHOW_VISUALIZER = true
+local AUTO_PLANT_ENABLED = false
 
+local lastPlaceTime = 0
 local gridCenterX = 0
 local gridCenterZ = 0
-local isGridSet = false
+local placedPositions = {}
+local visualizationParts = {}
+local lastVisualUpdate = 0
+lastPosition = Vector3.new(0,0,0)
 
 -- GUI
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AutoPlantGridGui"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AutoPlantGridGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 200, 0, 239)
-MainFrame.Position = UDim2.new(0, 10, 0.5, -101)
-MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.Parent = ScreenGui
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 220, 0, 260)
+mainFrame.Position = UDim2.new(0, 10, 0.5, -130)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
 
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 20)
-Title.BackgroundTransparency = 1
-Title.Text = "Auto Place PlantBox"
-Title.TextColor3 = Color3.fromRGB(200, 200, 200)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 12
-Title.Parent = MainFrame
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 25)
+title.Position = UDim2.new(0, 0, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "Auto Place PlantBox"
+title.TextColor3 = Color3.fromRGB(200, 200, 200)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.Parent = mainFrame
 
--- Toggle Button
-local ToggleBtn = Instance.new("TextButton")
-ToggleBtn.Name = "ToggleButton"
-ToggleBtn.Size = UDim2.new(1, -10, 0, 32)
-ToggleBtn.Position = UDim2.new(0, 5, 0, 22)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleBtn.Font = Enum.Font.GothamBold
-ToggleBtn.TextSize = 13
-ToggleBtn.Text = "Auto Place: OFF"
-ToggleBtn.Parent = MainFrame
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(1, -20, 0, 35)
+toggleBtn.Position = UDim2.new(0, 10, 0, 35)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 14
+toggleBtn.Text = "Auto Place: OFF"
+toggleBtn.Parent = mainFrame
 
-ToggleBtn.MouseButton1Click:Connect(function()
-    Config.Enabled = not Config.Enabled
-    if Config.Enabled then
-        ToggleBtn.Text = "Auto Place: ON"
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+toggleBtn.MouseButton1Click:Connect(function()
+    AUTO_PLANT_ENABLED = not AUTO_PLANT_ENABLED
+    toggleBtn.Text = AUTO_PLANT_ENABLED and "Auto Place: ON" or "Auto Place: OFF"
+    toggleBtn.BackgroundColor3 = AUTO_PLANT_ENABLED and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(50, 50, 50)
+end)
+
+local visToggleBtn = Instance.new("TextButton")
+visToggleBtn.Size = UDim2.new(1, -20, 0, 35)
+visToggleBtn.Position = UDim2.new(0, 10, 0, 80)
+visToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+visToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+visToggleBtn.Font = Enum.Font.GothamBold
+visToggleBtn.TextSize = 14
+visToggleBtn.Text = "Visualizer: ON"
+visToggleBtn.Parent = mainFrame
+
+visToggleBtn.MouseButton1Click:Connect(function()
+    SHOW_VISUALIZER = not SHOW_VISUALIZER
+    visToggleBtn.Text = SHOW_VISUALIZER and "Visualizer: ON" or "Visualizer: OFF"
+end)
+
+local visLabel = Instance.new("TextLabel")
+visLabel.Size = UDim2.new(1, -20, 0, 20)
+visLabel.Position = UDim2.new(0, 10, 0, 125)
+visLabel.BackgroundTransparency = 1
+visLabel.Text = "Visual Radius: 50"
+visLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+visLabel.Font = Enum.Font.Gotham
+visLabel.TextSize = 13
+visLabel.Parent = mainFrame
+
+local visBox = Instance.new("TextBox")
+visBox.Size = UDim2.new(1, -20, 0, 30)
+visBox.Position = UDim2.new(0, 10, 0, 145)
+visBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+visBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+visBox.Text = tostring(VISUAL_RADIUS)
+visBox.Font = Enum.Font.Gotham
+visBox.TextSize = 14
+visBox.Parent = mainFrame
+
+visBox.FocusLost:Connect(function()
+    local num = tonumber(visBox.Text)
+    if num and num >= 20 and num <= 300 then
+        VISUAL_RADIUS = num
+        visLabel.Text = "Visual Radius: " .. VISUAL_RADIUS
+        createVisualParts()
     else
-        ToggleBtn.Text = "Auto Place: OFF"
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        visBox.Text = tostring(VISUAL_RADIUS)
     end
 end)
 
--- Settings
-local function createSetting(name, defaultValue, yOffset, callback)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, -10, 0, 32)
-    frame.Position = UDim2.new(0, 5, 0, yOffset)
-    frame.BackgroundTransparency = 1
-    frame.Parent = MainFrame
+local visFolder = Instance.new("Folder")
+visFolder.Name = "GridVisualization"
+visFolder.Parent = Workspace.CurrentCamera
 
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.6, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.Text = name
-    label.TextColor3 = Color3.fromRGB(200, 200, 200)
-    label.Font = Enum.Font.GothamBold
-    label.TextSize = 11
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = frame
+local raycastParams = RaycastParams.new()
+raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+raycastParams.IgnoreWater = false
 
-    local textbox = Instance.new("TextBox")
-    textbox.Size = UDim2.new(0.4, 0, 1, -6)
-    textbox.Position = UDim2.new(0.6, 0, 0, 3)
-    textbox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    textbox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    textbox.Font = Enum.Font.GothamBold
-    textbox.TextSize = 12
-    textbox.Text = tostring(defaultValue)
-    textbox.Parent = frame
-
-    textbox.FocusLost:Connect(function()
-        local val = tonumber(textbox.Text)
-        if val then
-            callback(val)
-        else
-            textbox.Text = tostring(defaultValue)
-        end
-    end)
+local function getGroundHeight(x, z)
+    local result = Workspace:Raycast(Vector3.new(x, RAYCAST_HEIGHT, z), Vector3.new(0, -600, 0), raycastParams)
+    return result and result.Position.Y
 end
 
-createSetting("Place Radius", Config.PlaceRadius, 58, function(v) Config.PlaceRadius = v end)
-createSetting("Visual Radius", Config.VisualRadius, 94, function(v) Config.VisualRadius = v end)
-createSetting("Place Cooldown", Config.PlaceCooldown, 130, function(v) Config.PlaceCooldown = v end)
-createSetting("Raycast Height", Config.RaycastHeight, 166, function(v) Config.RaycastHeight = v end)
-
--- Shape Toggle
-local ShapeBtn = Instance.new("TextButton")
-ShapeBtn.Size = UDim2.new(1, -10, 0, 32)
-ShapeBtn.Position = UDim2.new(0, 5, 0, 202)
-ShapeBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-ShapeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-ShapeBtn.Font = Enum.Font.GothamBold
-ShapeBtn.TextSize = 13
-ShapeBtn.Text = "Shape: Circle"
-ShapeBtn.Parent = MainFrame
-
-ShapeBtn.MouseButton1Click:Connect(function()
-    if Config.Shape == "Circle" then
-        Config.Shape = "Square"
-        ShapeBtn.Text = "Shape: Square"
-    else
-        Config.Shape = "Circle"
-        ShapeBtn.Text = "Shape: Circle"
-    end
-end)
-
--- Grid Visualization
-local VisualFolder = Instance.new("Folder")
-VisualFolder.Name = "GridVisualization"
-VisualFolder.Parent = Workspace.CurrentCamera
-
-local visualParts = {}
-
-local function updateVisualParts()
-    local gridSize = Config.GridSize
-    local needed = math.ceil(Config.VisualRadius * 2 / gridSize) + 1
-    local total = needed * needed
-
-    while #visualParts < total do
+local function createVisualParts()
+    for _, p in ipairs(visualizationParts) do p:Destroy() end
+    visualizationParts = {}
+    local count = math.ceil(VISUAL_RADIUS * 2 / GRID_SIZE) + 1
+    for i = 1, math.min(count * count, 100) do
         local part = Instance.new("Part")
-        part.Size = Vector3.new(gridSize - 0.3, 0.1, gridSize - 0.3)
+        part.Size = Vector3.new(GRID_SIZE - 0.4, 0.2, GRID_SIZE - 0.4)
         part.Anchored = true
         part.CanCollide = false
         part.CanQuery = false
         part.CanTouch = false
         part.Material = Enum.Material.Neon
-        part.Parent = nil
-        table.insert(visualParts, part)
+        part.Transparency = 0.5
+        part.Parent = visFolder
+        table.insert(visualizationParts, part)
     end
 end
-updateVisualParts()
+createVisualParts()
 
--- Raycast Setup
-local raycastParams = RaycastParams.new()
-raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-raycastParams.IgnoreWater = false
-
-local function updateFilter()
-    raycastParams.FilterDescendantsInstances = {VisualFolder, Workspace:FindFirstChild("Players")}
-end
-updateFilter()
-
-local function raycastDown(x, z, height)
-    return Workspace:Raycast(Vector3.new(x, height + Config.RaycastHeight, z), Vector3.new(0, -500, 0), raycastParams)
+local function updateGridCenter()
+    local char = LocalPlayer.Character
+    if not char then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    gridCenterX = math.round(root.Position.X / GRID_SIZE) * GRID_SIZE
+    gridCenterZ = math.round(root.Position.Z / GRID_SIZE) * GRID_SIZE
+    return true
 end
 
--- Main Loop
-local lastPlaceTime = 0
-local lastUpdateTime = 0
-
-RunService.Heartbeat:Connect(function()
-    local now = os.clock()
-
-    -- Set grid center
-    if not isGridSet then
-        local char = LocalPlayer.Character
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            local hrp = char.HumanoidRootPart
-            gridCenterX = math.round(hrp.Position.X / Config.GridSize) * Config.GridSize
-            gridCenterZ = math.round(hrp.Position.Z / Config.GridSize) * Config.GridSize
-            isGridSet = true
-        else
-            return
-        end
-    end
+local function updateVisuals()
+    if not SHOW_VISUALIZER then return end
+    local now = tick()
+    if now - lastVisualUpdate < 0.1 then return end
+    lastVisualUpdate = now
 
     local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    local hrp = char.HumanoidRootPart
-    local pos = hrp.Position
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
 
-    -- Periodic refresh
-    if now - lastUpdateTime > 15 then
-        updateFilter()
-        lastUpdateTime = now
-    end
+    local idx = 1
+    local half = math.ceil(VISUAL_RADIUS / GRID_SIZE)
 
-    -- Grid Visualization
-    if now - lastUpdateTime > 0.15 then
-        lastUpdateTime = now
+    for x = -half, half do
+        for z = -half, half do
+            if idx > #visualizationParts then break end
+            local wx = gridCenterX + x * GRID_SIZE
+            local wz = gridCenterZ + z * GRID_SIZE
+            local part = visualizationParts[idx]
 
-        for _, part in ipairs(visualParts) do
-            part.Parent = nil
-        end
+            local inRange = (wx - root.Position.X)^2 + (wz - root.Position.Z)^2 <= PLACE_RADIUS^2
 
-        -- (Visualization logic simplified - full grid rendering can be expanded if needed)
-    end
-
-    -- Auto Place
-    if not Config.Enabled or now - lastPlaceTime < Config.PlaceCooldown then
-        return
-    end
-
-    -- Place Plant Boxes in grid (core logic)
-    local radius = Config.PlaceRadius
-    local gridSize = Config.GridSize
-    local maxGrid = 100000 / 2 / gridSize
-
-    for dx = -radius, radius, gridSize do
-        for dz = -radius, radius, gridSize do
-            local worldX = gridCenterX + dx
-            local worldZ = gridCenterZ + dz
-
-            local inRange = false
-            if Config.Shape == "Circle" then
-                inRange = (dx * dx + dz * dz) <= (radius * radius)
+            local y = getGroundHeight(wx, wz)
+            if y then
+                part.Position = Vector3.new(wx, y + 0.6, wz)
+                part.Color = inRange and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(90, 90, 90)
+                part.Transparency = inRange and 0.35 or 0.8
+                part.Parent = visFolder
             else
-                inRange = math.abs(dx) <= radius and math.abs(dz) <= radius
+                part.Parent = nil
             end
+            idx += 1
+        end
+    end
+end
 
-            if inRange then
-                local result = raycastDown(worldX, worldZ, pos.Y)
-                if result and result.Instance and result.Instance.Material ~= Enum.Material.Water then
-                    -- Place the structure
-                    Packets.PlaceStructure.send({
-                        buildingName = "Plant Box",
-                        cframe = CFrame.new(worldX, result.Position.Y + 0.5, worldZ)
-                    })
+RunService.Heartbeat:Connect(function()
+    if not updateGridCenter() then return end
+    updateVisuals()
 
-                    lastPlaceTime = now
-                    return -- Place one per tick to avoid spam
-                end
+    if not AUTO_PLANT_ENABLED then return end
+    if tick() - lastPlaceTime < PLACE_COOLDOWN then return end
+
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    if (root.Position - lastPosition).Magnitude > 15 then
+        placedPositions = {}
+        lastPosition = root.Position
+    end
+
+    for _, part in ipairs(visualizationParts) do
+        if part.Parent and part.Color == Color3.fromRGB(0, 255, 100) then
+            local pos = part.Position
+            local key = math.round(pos.X / GRID_SIZE) .. "," .. math.round(pos.Z / GRID_SIZE)
+            if not placedPositions[key] or tick() - placedPositions[key] > 3 then
+                Packets.PlaceStructure.send({
+                    buildingName = "Plant Box",
+                    cframe = CFrame.new(pos.X, pos.Y - 0.5, pos.Z)
+                })
+                placedPositions[key] = tick()
+                lastPlaceTime = tick()
+                return
             end
         end
     end
