@@ -1,0 +1,458 @@
+--not 1/1 to original but it works the same lmao
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local rootPart = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
+
+-- Services
+local Packets = require(ReplicatedStorage.Modules.Packets)
+
+-- Fruit IDs
+local fruitIds = {
+    Bloodfruit = 94, Bluefruit = 377, Lemon = 99, Coconut = 1,
+    Jelly = 604, Banana = 606, Orange = 602, Oddberry = 32,
+    Berry = 35, Strangefruit = 302, Strawberry = 282, Sunfruit = 128,
+    Pumpkin = 80, ["Prickly Pear"] = 378, Apple = 243, Barley = 247,
+    Cloudberry = 101, Carrot = 147, Watermelon = 850, Mango = 852, Blossom = 958
+}
+
+-- Config
+local config = {
+    Enabled = false,
+    SelectedFruit = "Bloodfruit",
+    PlantRange = 40,
+    HarvestRange = 40,
+    TweenEnabled = false,
+    TweenTarget = "Both",
+    TweenRange = 300,
+    StopLimit = 0
+}
+
+-- Performance
+Lighting.GlobalShadows = false
+Lighting.Brightness = 1
+Lighting.EnvironmentDiffuseScale = 0
+Lighting.EnvironmentSpecularScale = 0
+Lighting.FogEnd = 9000000000
+
+for _, v in ipairs(Lighting:GetChildren()) do
+    if v:IsA("PostEffect") then v.Enabled = false end
+end
+
+for _, v in ipairs(Workspace:GetDescendants()) do
+    if v:IsA("BasePart") then
+        v.Material = Enum.Material.Plastic
+        v.Reflectance = 0
+    end
+end
+
+local terrain = Workspace:FindFirstChildOfClass("Terrain")
+if terrain then
+    terrain.WaterWaveSize = 0
+    terrain.WaterWaveSpeed = 0
+    terrain.WaterReflectance = 0
+    terrain.WaterTransparency = 1
+end
+
+-- Anti-AFK
+LocalPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(new)
+    character = new
+    rootPart = new:WaitForChild("HumanoidRootPart")
+    humanoid = new:WaitForChild("Humanoid")
+end)
+
+-- Tween Logic (from Herkle Hub)
+local tweening = nil
+local function tween(target)
+    if tweening then tweening:Cancel() end
+    local distance = (rootPart.Position - target.Position).Magnitude
+    local duration = distance / 19 -- default speed
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+    local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = target})
+    tween:Play()
+    tweening = tween
+end
+
+-- GUI
+local sg = Instance.new("ScreenGui")
+sg.ResetOnSpawn = false
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Global
+sg.Parent = game:GetService("CoreGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 220, 0, 280)
+frame.Position = UDim2.new(0.5, -110, 0.1, 0)
+frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+frame.BorderColor3 = Color3.fromRGB(70,70,70)
+frame.BorderSizePixel = 2
+frame.Parent = sg
+
+-- Dragging
+local dragging, dragInput, dragStart, startPos
+local title = Instance.new("Frame")
+title.Size = UDim2.new(1,0,0,25)
+title.BackgroundTransparency = 1
+title.Parent = frame
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Text = "🍓 Fruit Farm"
+titleLabel.Size = UDim2.new(1,0,1,0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.TextColor3 = Color3.fromRGB(220,220,220)
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.TextSize = 16
+titleLabel.Parent = title
+
+title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = frame.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+-- Helper Functions
+local function getHunger()
+    local gui = LocalPlayer.PlayerGui:FindFirstChild("MainGui")
+    if not gui then return 100 end
+    local bars = gui:FindFirstChild("Panels") and gui.Panels:FindFirstChild("Stats") and gui.Panels.Stats:FindFirstChild("Bars")
+    local hunger = bars and bars:FindFirstChild("Hunger")
+    local label = hunger and hunger:FindFirstChild("ValueLabel")
+    return label and tonumber(label.Text) or 100
+end
+
+local function getFruitSlot(fruit)
+    local gui = LocalPlayer.PlayerGui:FindFirstChild("MainGui")
+    if not gui then return nil end
+    local list = gui:FindFirstChild("RightPanel") and gui.RightPanel:FindFirstChild("Inventory") and gui.RightPanel.Inventory:FindFirstChild("List")
+    local slot = list and list:FindFirstChild(fruit)
+    return slot and slot.LayoutOrder
+end
+
+local function getFruitCount(fruit)
+    local gui = LocalPlayer.PlayerGui:FindFirstChild("MainGui")
+    if not gui then return 0 end
+    local list = gui:FindFirstChild("RightPanel") and gui.RightPanel:FindFirstChild("Inventory") and gui.RightPanel.Inventory:FindFirstChild("List")
+    local slot = list and list:FindFirstChild(fruit)
+    if slot then
+        local qt = slot:FindFirstChild("QuantityImage") and slot.QuantityImage:FindFirstChild("QuantityText")
+        return qt and tonumber(qt.Text:gsub(",", "")) or 0
+    end
+    return 0
+end
+
+-- Farming Functions
+local function pickup(id)
+    if Packets.Pickup and Packets.Pickup.send then
+        Packets.Pickup.send(id)
+    end
+end
+
+local function plant(entityID)
+    local id = fruitIds[config.SelectedFruit] or 94
+    if Packets.InteractStructure and Packets.InteractStructure.send then
+        Packets.InteractStructure.send({entityID = entityID, itemID = id})
+    end
+end
+
+-- Plant Boxes
+local plantBoxes = {}
+local function refreshBoxes()
+    table.clear(plantBoxes)
+    local folder = Workspace:FindFirstChild("Plant Boxes") or Workspace
+    for _, v in ipairs(folder:GetDescendants()) do
+        if v.Name == "Plant Box" then
+            local eid = v:GetAttribute("EntityID")
+            if eid then
+                table.insert(plantBoxes, {
+                    entityID = eid,
+                    model = v,
+                    part = v.PrimaryPart or v:FindFirstChildWhichIsA("BasePart")
+                })
+            end
+        end
+    end
+end
+refreshBoxes()
+
+-- UI Buttons
+local yOffset = 35
+
+local toggle = Instance.new("TextButton")
+toggle.Size = UDim2.new(1, -10, 0, 35)
+toggle.Position = UDim2.new(0, 5, 0, yOffset)
+toggle.BackgroundColor3 = Color3.fromRGB(50,50,50)
+toggle.TextColor3 = Color3.fromRGB(255,255,255)
+toggle.Text = "Farming: OFF"
+toggle.Font = Enum.Font.SourceSansBold
+toggle.TextSize = 14
+toggle.Parent = frame
+yOffset += 40
+
+toggle.MouseButton1Click:Connect(function()
+    config.Enabled = not config.Enabled
+    toggle.Text = "Farming: " .. (config.Enabled and "ON" or "OFF")
+    toggle.BackgroundColor3 = config.Enabled and Color3.fromRGB(40, 120, 40) or Color3.fromRGB(50,50,50)
+end)
+
+-- Fruit Selector
+local fruitBtn = Instance.new("TextButton")
+fruitBtn.Size = UDim2.new(1, -10, 0, 35)
+fruitBtn.Position = UDim2.new(0, 5, 0, yOffset)
+fruitBtn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+fruitBtn.TextColor3 = Color3.fromRGB(220,220,220)
+fruitBtn.Text = "Selected: " .. config.SelectedFruit
+fruitBtn.Font = Enum.Font.SourceSans
+fruitBtn.TextSize = 14
+fruitBtn.Parent = frame
+yOffset += 40
+
+local dropdownFrame
+fruitBtn.MouseButton1Click:Connect(function()
+    if dropdownFrame then dropdownFrame:Destroy() end
+    dropdownFrame = Instance.new("Frame")
+    dropdownFrame.Size = UDim2.new(1, -10, 0, #fruitIds * 28)
+    dropdownFrame.Position = UDim2.new(0, 5, 1, 5)
+    dropdownFrame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    dropdownFrame.BorderSizePixel = 1
+    dropdownFrame.Parent = fruitBtn
+
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Parent = dropdownFrame
+
+    for name, _ in pairs(fruitIds) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 28)
+        btn.BackgroundColor3 = Color3.fromRGB(55,55,55)
+        btn.Text = name
+        btn.TextColor3 = Color3.fromRGB(220,220,220)
+        btn.Font = Enum.Font.SourceSans
+        btn.TextSize = 14
+        btn.Parent = dropdownFrame
+
+        btn.MouseButton1Click:Connect(function()
+            config.SelectedFruit = name
+            fruitBtn.Text = "Selected: " .. name
+            if dropdownFrame then dropdownFrame:Destroy() end
+        end)
+    end
+end)
+
+-- Tween Toggle
+local tweenBtn = Instance.new("TextButton")
+tweenBtn.Size = UDim2.new(0.48, 0, 0, 35)
+tweenBtn.Position = UDim2.new(0, 5, 0, yOffset)
+tweenBtn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+tweenBtn.Text = "Tween: OFF"
+tweenBtn.TextColor3 = Color3.fromRGB(220,220,220)
+tweenBtn.Parent = frame
+
+tweenBtn.MouseButton1Click:Connect(function()
+    config.TweenEnabled = not config.TweenEnabled
+    tweenBtn.Text = "Tween: " .. (config.TweenEnabled and "ON" or "OFF")
+    tweenBtn.BackgroundColor3 = config.TweenEnabled and Color3.fromRGB(40,120,40) or Color3.fromRGB(50,50,50)
+end)
+
+-- Target Selector
+local targetBtn = Instance.new("TextButton")
+targetBtn.Size = UDim2.new(0.48, 0, 0, 35)
+targetBtn.Position = UDim2.new(0.52, 0, 0, yOffset)
+targetBtn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+targetBtn.Text = "Target: Both"
+targetBtn.TextColor3 = Color3.fromRGB(220,220,220)
+targetBtn.Parent = frame
+yOffset += 40
+
+local targets = {"Box", "Bush", "Both"}
+targetBtn.MouseButton1Click:Connect(function()
+    if dropdownFrame then dropdownFrame:Destroy() end
+    dropdownFrame = Instance.new("Frame")
+    dropdownFrame.Size = UDim2.new(0.48, 0, 0, #targets * 28)
+    dropdownFrame.Position = UDim2.new(0.52, 0, 1, 5)
+    dropdownFrame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    dropdownFrame.Parent = targetBtn
+
+    local ll = Instance.new("UIListLayout", dropdownFrame)
+
+    for _, t in ipairs(targets) do
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(1,0,0,28)
+        b.BackgroundColor3 = Color3.fromRGB(55,55,55)
+        b.Text = t
+        b.TextColor3 = Color3.fromRGB(220,220,220)
+        b.Parent = dropdownFrame
+
+        b.MouseButton1Click:Connect(function()
+            config.TweenTarget = t
+            targetBtn.Text = "Target: " .. t
+            dropdownFrame:Destroy()
+        end)
+    end
+end)
+
+-- Stop Limit
+local stopBox = Instance.new("TextBox")
+stopBox.Size = UDim2.new(1, -10, 0, 35)
+stopBox.Position = UDim2.new(0, 5, 0, yOffset)
+stopBox.PlaceholderText = "Stop Limit (e.g. 500, 10k, 1m)"
+stopBox.Text = ""
+stopBox.BackgroundColor3 = Color3.fromRGB(50,50,50)
+stopBox.TextColor3 = Color3.fromRGB(220,220,220)
+stopBox.Parent = frame
+yOffset += 45
+
+stopBox.FocusLost:Connect(function()
+    local txt = stopBox.Text:lower():gsub(",", "")
+    local num = tonumber(txt:match("%d+%.?%d*")) or 0
+    if txt:find("k") then num *= 1000
+    elseif txt:find("m") then num *= 1000000 end
+    config.StopLimit = num
+    stopBox.Text = num > 0 and tostring(num) or ""
+end)
+
+-- Credit
+local credit = Instance.new("TextLabel")
+credit.Size = UDim2.new(1,0,0,20)
+credit.Position = UDim2.new(0,0,1,-25)
+credit.BackgroundTransparency = 1
+credit.Text = "Made by S_J • Cleaned"
+credit.TextColor3 = Color3.fromRGB(160,160,160)
+credit.Font = Enum.Font.SourceSansItalic
+credit.TextSize = 13
+credit.Parent = frame
+
+-- Tween Functions
+local function getpbs(range)
+    local plantboxes = {}
+    for _, deployable in ipairs(Workspace.Deployables:GetChildren()) do
+        if deployable:IsA("Model") and deployable.Name == "Plant Box" then
+            local entityid = deployable:GetAttribute("EntityID")
+            local ppart = deployable.PrimaryPart or deployable:FindFirstChildWhichIsA("BasePart")
+            if entityid and ppart then
+                local dist = (ppart.Position - rootPart.Position).Magnitude
+                if dist <= range then
+                    table.insert(plantboxes, {entityid = entityid, deployable = deployable, dist = dist})
+                end
+            end
+        end
+    end
+    return plantboxes
+end
+
+local function getbushes(range, fruitname)
+    local bushes = {}
+    for _, model in ipairs(Workspace:GetChildren()) do
+        if model:IsA("Model") and model.Name:find(fruitname) then
+            local ppart = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+            if ppart then
+                local dist = (ppart.Position - rootPart.Position).Magnitude
+                if dist <= range then
+                    local entityid = model:GetAttribute("EntityID")
+                    if entityid then
+                        table.insert(bushes, {entityid = entityid, model = model, dist = dist})
+                    end
+                end
+            end
+        end
+    end
+    return bushes
+end
+
+-- Main Farming Loops (Planting + Harvesting + Tween)
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if not config.Enabled or not rootPart then continue end
+
+        -- Auto Eat
+        if getHunger() <= 10 then
+            local slot = getFruitSlot(config.SelectedFruit)
+            if slot then Packets.UseBagItem.send(slot) end
+        end
+
+        -- Tween Logic
+        if config.TweenEnabled then
+            local range = config.TweenRange
+            local targetType = config.TweenTarget
+
+            if targetType == "Box" or targetType == "Both" then
+                local plantboxes = getpbs(range)
+                table.sort(plantboxes, function(a, b) return a.dist < b.dist end)
+                for _, box in ipairs(plantboxes) do
+                    if not box.deployable:FindFirstChild("Seed") then
+                        local target = box.deployable.PrimaryPart.CFrame + Vector3.new(0, 5, 0)
+                        tween(target)
+                        break
+                    end
+                end
+            end
+
+            if targetType == "Bush" or targetType == "Both" then
+                local bushes = getbushes(range, config.SelectedFruit)
+                table.sort(bushes, function(a, b) return a.dist < b.dist end)
+                if #bushes > 0 then
+                    for _, bush in ipairs(bushes) do
+                        local target = bush.model.PrimaryPart.CFrame + Vector3.new(0, 5, 0)
+                        tween(target)
+                        break
+                    end
+                end
+            end
+        end
+
+        -- Planting
+        for i = #plantBoxes, 1, -1 do
+            local box = plantBoxes[i]
+            if not box.model or not box.model.Parent then
+                table.remove(plantBoxes, i)
+            elseif (box.part.Position - rootPart.Position).Magnitude <= config.PlantRange then
+                if not box.model:FindFirstChild("Seed") then
+                    plant(box.entityID)
+                end
+            end
+        end
+
+        -- Harvesting
+        for _, model in ipairs(Workspace:GetChildren()) do
+            if model:IsA("Model") and model.Name:find(config.SelectedFruit, 1, true) then
+                local part = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+                if part and (part.Position - rootPart.Position).Magnitude <= config.HarvestRange then
+                    local eid = model:GetAttribute("EntityID")
+                    if eid then pickup(eid) end
+                end
+            end
+        end
+
+        -- Stop Limit
+        if config.StopLimit > 0 and getFruitCount(config.SelectedFruit) >= config.StopLimit then
+            LocalPlayer:Kick("Fruit Limit Reached: " .. getFruitCount(config.SelectedFruit))
+        end
+    end
+end)
